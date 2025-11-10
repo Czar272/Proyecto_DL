@@ -1,0 +1,8 @@
+# Collect info - Este codigo es para guardar ejemplos de como es cada posicion de manos, a que nombre deberia de asociarla
+python src/collect_dataset.py --out data/raw --labels labels.json --camera 0
+
+# Split dataset - Este codigo es para dividir los datos entre entrenamiento y validacion
+python src/split_dataset.py --raw data/raw --train data/train --val data/val --val_ratio 0.2
+
+# Este entrena el modelo
+python src/train.py --train_dir data/train --val_dir data/val --labels labels.json --epochs 10

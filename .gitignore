@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+models/
+results/
+*.mp4
+deepvenv311
