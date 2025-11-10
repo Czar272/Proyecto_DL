@@ -4,3 +4,4 @@ models/
 results/
 *.mp4
 deepvenv311
+data
