@@ -63,16 +63,17 @@ def main():
     ap.add_argument(
         "--fine_tune", action="store_true", help="Unfreeze top layers for fine-tuning"
     )
-    ap.add_argument("--save_path", default="models/mobilenetv2.h5")
+    ap.add_argument("--save_path", default="models/mobilenetv2.keras")
     args = ap.parse_args()
 
-    class_names = json.load(open(args.labels))
+    class_names = json.load(open(args.labels, "r", encoding="utf-8"))
     num_classes = len(class_names)
 
     train_ds = tf.keras.utils.image_dataset_from_directory(
         args.train_dir,
         labels="inferred",
         label_mode="int",
+        class_names=class_names,
         image_size=(args.img_size, args.img_size),
         batch_size=args.batch_size,
         shuffle=True,
@@ -81,6 +82,7 @@ def main():
         args.val_dir,
         labels="inferred",
         label_mode="int",
+        class_names=class_names,
         image_size=(args.img_size, args.img_size),
         batch_size=args.batch_size,
         shuffle=False,
@@ -112,6 +114,9 @@ def main():
 
     os.makedirs(os.path.dirname(args.save_path) or ".", exist_ok=True)
     os.makedirs("results", exist_ok=True)
+    if not args.save_path.endswith(".keras"):
+        args.save_path = os.path.splitext(args.save_path)[0] + ".keras"
+
     ckpt = keras.callbacks.ModelCheckpoint(
         args.save_path,
         monitor="val_accuracy",
@@ -142,7 +147,6 @@ def main():
             callbacks=[ckpt, lr, es],
         )
 
-    # Evaluation
     y_true, y_pred = [], []
     for imgs, labels_batch in val_ds:
         preds = model_aug.predict(imgs, verbose=0)
@@ -152,8 +156,11 @@ def main():
     cm = confusion_matrix(y_true, y_pred)
     plot_confusion_matrix(cm, class_names, "results/confusion_matrix.png")
     rep = classification_report(y_true, y_pred, target_names=class_names, digits=4)
-    with open("results/classification_report.txt", "w") as f:
+    with open("results/classification_report.txt", "w", encoding="utf-8") as f:
         f.write(rep)
+
+    with open("results/labels_used.json", "w", encoding="utf-8") as f:
+        json.dump(class_names, f, ensure_ascii=False, indent=2)
 
     model_aug.save(args.save_path)
     print("Saved model to", args.save_path)

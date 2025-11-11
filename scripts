@@ -5,7 +5,10 @@ python src/collect_dataset.py --out data/raw --labels labels.json --camera 0
 python src/split_dataset.py --raw data/raw --train data/train --val data/val --val_ratio 0.2
 
 # Train model - Este entrena el modelo
-python src/train.py --train_dir data/train --val_dir data/val --labels labels.json --epochs 10
+python src/train.py --train_dir data/train --val_dir data/val --labels labels.json --epochs 12 --fine_tune --save_path models/mobilenetv2.keras
+
+# Convert to keras - Esto se hace por compatibilidad con tenserflow para cargar el modelo
+python src/convert_h5_to_keras.py
 
 # interfance - Para verlo en vivo
-python src/inference_webcam.py --model models/mobilenetv2.h5 --labels labels.json --camera 0 --mirror
+python src/inference_webcam.py --model models/mobilenetv2.keras --labels labels.json --camera 0 --mirror

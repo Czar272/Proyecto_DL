@@ -1,11 +1,18 @@
-import os
-import argparse, json, cv2, numpy as np, time
+import argparse, json, cv2, numpy as np, time, os
 import mediapipe as mp
 from tensorflow.keras.models import load_model
 import tensorflow as tf
+from collections import deque
 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
+
+CONF_THRESH = 0.70
+SMOOTH_WINDOW = 6
+PADDING = 60
+MIN_SIDE = 96
+
+probs_buffer = deque(maxlen=SMOOTH_WINDOW)
 
 
 def preprocess(img, img_size):
@@ -25,35 +32,31 @@ def main():
     ap.add_argument("--mirror", action="store_true")
     args = ap.parse_args()
 
-    labels = json.load(open(args.labels))
+    labels_used_path = "results/labels_used.json"
+    if os.path.exists(labels_used_path):
+        labels = json.load(open(labels_used_path, "r", encoding="utf-8"))
+    else:
+        labels = json.load(open(args.labels, "r", encoding="utf-8"))
 
     try:
         true_div = tf.__operators__.truediv
     except AttributeError:
         true_div = tf.math.divide
+    customs = {"TrueDivide": true_div, "Divide": true_div}
 
-    customs = {
-        "TrueDivide": true_div,
-        "Divide": true_div,
-    }
     ext = os.path.splitext(args.model)[1].lower()
-
     if ext == ".h5":
-        # Para HDF5 usamos custom_objects y safe_mode=False
         model = load_model(
-            args.model,
-            compile=False,
-            custom_objects=customs,
-            safe_mode=False,
+            args.model, compile=False, custom_objects=customs, safe_mode=False
         )
     else:
-        # Para .keras NO pasar custom_objects
         model = load_model(args.model, compile=False)
 
-    assert model.output_shape[-1] == len(
-        labels
-    ), f"Clases del modelo ({model.output_shape[-1]}) != len(labels.json) ({len(labels)})"
-
+    if model.output_shape[-1] != len(labels):
+        print(
+            f"[WARN] Clases del modelo ({model.output_shape[-1]}) != len(labels) ({len(labels)}). "
+            f"Revisa labels_used.json y el modelo."
+        )
     cap = cv2.VideoCapture(args.camera)
     if not cap.isOpened():
         raise RuntimeError("Cannot open camera")
@@ -65,7 +68,7 @@ def main():
         min_tracking_confidence=0.5,
     ) as hands:
         prev = time.time()
-        fps = 0
+        fps = 0.0
         while True:
             ret, frame = cap.read()
 
@@ -83,15 +86,29 @@ def main():
                 lm = res.multi_hand_landmarks[0]
                 xs = [int(p.x * w) for p in lm.landmark]
                 ys = [int(p.y * h) for p in lm.landmark]
-                x1, y1 = max(min(xs) - 30, 0), max(min(ys) - 30, 0)
-                x2, y2 = min(max(xs) + 30, w), min(max(ys) + 30, h)
-                crop = frame[y1:y2, x1:x2]
-                if crop.size > 0:
-                    inp = preprocess(crop, args.img_size)
-                    preds = model.predict(np.expand_dims(inp, 0), verbose=0)[0]
-                    i = int(np.argmax(preds))
-                    conf = float(preds[i])
-                    display_text = f"{labels[i]} ({conf*100:.1f}%)"
+                x1, y1 = max(min(xs) - PADDING, 0), max(min(ys) - PADDING, 0)
+                x2, y2 = min(max(xs) + PADDING, w), min(max(ys) + PADDING, h)
+
+                if (x2 - x1) >= MIN_SIDE and (y2 - y1) >= MIN_SIDE:
+                    crop = frame[y1:y2, x1:x2]
+                    if crop.size > 0:
+                        inp = preprocess(crop, args.img_size)
+                        preds = model.predict(np.expand_dims(inp, 0), verbose=0)[0]
+                        probs_buffer.append(preds)
+                        avg_probs = (
+                            np.mean(probs_buffer, axis=0)
+                            if len(probs_buffer)
+                            else preds
+                        )
+                        i = int(np.argmax(avg_probs))
+                        conf = float(avg_probs[i])
+
+                        if conf < CONF_THRESH:
+                            display_text = f"unknown ({conf*100:.1f}%)"
+                        else:
+                            display_text = f"{labels[i]} ({conf*100:.1f}%)"
+                else:
+                    display_text = "hand too small"
 
                 mp_drawing.draw_landmarks(frame, lm, mp_hands.HAND_CONNECTIONS)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
