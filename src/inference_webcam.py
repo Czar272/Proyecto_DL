@@ -1,3 +1,4 @@
+import os
 import argparse, json, cv2, numpy as np, time
 import mediapipe as mp
 from tensorflow.keras.models import load_model
@@ -25,7 +26,33 @@ def main():
     args = ap.parse_args()
 
     labels = json.load(open(args.labels))
-    model = load_model(args.model)
+
+    try:
+        true_div = tf.__operators__.truediv
+    except AttributeError:
+        true_div = tf.math.divide
+
+    customs = {
+        "TrueDivide": true_div,
+        "Divide": true_div,
+    }
+    ext = os.path.splitext(args.model)[1].lower()
+
+    if ext == ".h5":
+        # Para HDF5 usamos custom_objects y safe_mode=False
+        model = load_model(
+            args.model,
+            compile=False,
+            custom_objects=customs,
+            safe_mode=False,
+        )
+    else:
+        # Para .keras NO pasar custom_objects
+        model = load_model(args.model, compile=False)
+
+    assert model.output_shape[-1] == len(
+        labels
+    ), f"Clases del modelo ({model.output_shape[-1]}) != len(labels.json) ({len(labels)})"
 
     cap = cv2.VideoCapture(args.camera)
     if not cap.isOpened():
